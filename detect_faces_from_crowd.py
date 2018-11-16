@@ -15,7 +15,7 @@ font = cv2.FONT_HERSHEY_SIMPLEX
 
 dirs = os.listdir('data')
 
-cap = cv2.VideoCapture(f'data/{dirs[1]}')
+cap = cv2.VideoCapture(0) #f'data/{dirs[1]}'
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 
 if cap.isOpened():
@@ -23,7 +23,6 @@ if cap.isOpened():
 	h = int(cap.get(4))
 out = cv2.VideoWriter('res/output.mp4', int(cap.get(6)), 15.0, (w,h))
 
-unic = 0
 matrix_descriptors = None
 w = int(w * 0.70)
 h = int(h * 0.92)
@@ -32,7 +31,7 @@ while(cap.isOpened()):
 	ret, frame = cap.read()
 
 	if ret:
-		dets = detector(frame, 1)
+		dets = detector(frame, 2)
 
 		for d in dets:
 
@@ -47,20 +46,18 @@ while(cap.isOpened()):
 				vector_of_differences = num_map(face_descriptor,matrix_descriptors)
 				index = np.argmin(vector_of_differences)
 
-				if vector_of_differences[index] <= 0.4:
+				if vector_of_differences[index] <= 0.7:
 					cv2.rectangle(frame, (d.left(), d.top()), (d.right(), d.bottom()), (255,0,255), 2)
 
 				else:
-
-					unic+=1
 					
 					cv2.rectangle(frame, (d.left(), d.top()), (d.right(), d.bottom()), (0,0,255), 2)
 					matrix_descriptors = np.append(matrix_descriptors, face_descriptor, axis=0)
 
 			else:
 				matrix_descriptors = face_descriptor
-		cv2.putText(frame, f'Unic: {unic}', (w, h), font, 3, (255,0,0), 3, cv2.LINE_AA)
-		out.write(frame)
+		cv2.putText(frame, f'Unic: {0 if matrix_descriptors is None else matrix_descriptors.shape[0]}', (w, h), font, 1, (255,0,0), 2, cv2.LINE_AA)
+		#out.write(frame)
 		print('frame записан')
 
 
@@ -71,7 +68,7 @@ while(cap.isOpened()):
 	if k == 27:
 		break
 
-	for yg in range(30):
+	for yg in range(4):
 		cap.read()
 
 cap.release()

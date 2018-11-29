@@ -1,15 +1,25 @@
-import dlib
-import cv2
-import numpy as np
+from tkinter import *
+from tkinter.ttk import *
+
 import os
 import sys
+import cv2
+import dlib
+import imutils
+import numpy as np
 
 from scipy.spatial import distance
 from multiprocessing import Pool, Manager
+from PIL import ImageTk, Image, ImageDraw, ImageFont
 
 detector = dlib.get_frontal_face_detector()
 sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
 facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+
+def img_generator(cap, w, h):
+	while cap.isOpened():
+
+		yield cv2.cvtColor(cap.read()[1], cv2.COLOR_BGR2RGB), w, h
 
 def video_maker(frames_with_data):
 
@@ -26,7 +36,7 @@ def video_maker(frames_with_data):
 		
 		descriptors.append(face_descriptor)
 			
-		cv2.rectangle(frame, (d.left(), d.top()), (d.right(), d.bottom()), (255,0,0), 2)
+		cv2.rectangle(frame, (d.left(), d.top()), (d.right(), d.bottom()), (0,0,255), 2)
 
 	return frame, descriptors
 
@@ -39,28 +49,24 @@ def main():
 	dirs = os.listdir('data')
 
 	cap = cv2.VideoCapture(0)    #'data/' + dirs[0]
-
-	NUM_FRAMES = 200 #int(cap.get(7))
-	#CODEC = int(cap.get(6))
-
-	if cap.isOpened():
-		w = int(cap.get(3))
-		h = int(cap.get(4))
-
+	# cap.set(3,1080)
+	# cap.set(4,720)
 	#out = cv2.VideoWriter('res/output6.mp4', CODEC, 25.0, (w,h))
+	img = imutils.resize(cap.read()[1], height=720)
+	h, w = img.shape[:2]
+	w = int(w * 0.7)
+	h = int(h * 0.9)
 
-	w = int(w * 0.70)
-	h = int(h * 0.92)
-
-	frames_with_data = (d for i, d in enumerate(
-							((cap.read()[1], w, h) for y in range(NUM_FRAMES))) 
-							if i % 8 == 0)
-
+	fnt = ImageFont.truetype("arial.ttf", 35)
 	font = cv2.FONT_HERSHEY_SIMPLEX
 	matrix_descriptors = np.array([])
+	window = Tk()
+	window.title('Счетчик')
 
 	with Pool() as p:
-		for d, i in enumerate(p.imap(video_maker, frames_with_data, chunksize=1)):
+		for d, i in enumerate(p.imap(video_maker, img_generator(cap,w,h), chunksize=1)):
+			for child in window.winfo_children():
+				child.destroy()
 
 			frame = i[0]
 
@@ -78,22 +84,24 @@ def main():
 				elif len(matrix_descriptors) == 0:
 
 					matrix_descriptors = face_descriptor
-			cv2.putText(frame, 
-						f'Unic: {len(matrix_descriptors)}', 
-						(w, h), 
-						font, 
-						1, 
-						(0,0,255), 
-						2, 
-						cv2.LINE_AA)					
 
-			cv2.imshow('img',frame)
-			k = cv2.waitKey(1) & 0xff
+			frame = Image.fromarray(imutils.resize(frame, height=720))
+			draw = ImageDraw.Draw(frame)
 
-			if k == 27:
-				break
-				sys.exit()
-			#out.write(i)
+			draw.text((w, h), f'Уникальных: {len(matrix_descriptors)}', font=fnt, fill=(255,0,0))
+
+			photo = ImageTk.PhotoImage(frame)
+
+			label_with_image = Label(window, image=photo)
+			label_with_image.image = photo
+
+			ok_button = Button(window,
+						text="Остановить",
+						command=lambda: cap.release())
+
+			label_with_image.pack()
+			ok_button.pack(padx=40,pady=10,side=LEFT)
+			window.update()
 
 			print(f'кадр {d} записан')
 		p.close()
@@ -101,6 +109,7 @@ def main():
 
 	cap.release()
 	#out.release()
+	window.mainloop()
 
 if __name__ == '__main__':
 	main()

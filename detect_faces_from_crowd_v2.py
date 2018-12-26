@@ -8,6 +8,61 @@ from queue import Queue
 from scipy.spatial import distance
 from multiprocessing import Pool, Manager, Process, Queue
 
+def main():
+
+	detector = dlib.get_frontal_face_detector()
+	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
+	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+	
+	manager = Manager()
+	images_q = manager.Queue(25)
+
+	Process(target=worker, args=(images_q,), daemon=True).start()
+
+	Process(target)
+
+	flag = True
+	close = False
+	
+	while not close:
+		while True:
+			if not images_q.empty():
+				img = images_q.get()
+				break
+
+		dets = detector(img, 1)
+		if len(dets):
+			track_windows = tuple((d.top(), d.height(), d.left(), d.width()) for d in dets)
+			histograms = tuple(map(histogramic, track_windows, [img for i in track_windows]))
+			for step in range(24):
+				frame = images_q.get()
+				hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+				i = 0
+				for roi_hist, term_crit in histograms:
+					dst = cv.calcBackProject([hsv],[0],roi_hist,[0,180],1)
+
+					ret, track_window = cv.CamShift(dst, track_windows[i], term_crit)
+					
+					pts = cv.boxPoints(ret)
+					pts = np.int0(pts)
+					frame = cv.polylines(frame,[pts],True, 255,2)
+					i+=1
+
+				cv.imshow('img2',frame)
+				k = cv.waitKey(60) & 0xff
+				if k == 27:
+					close = True
+					break
+
+		else:
+			frame = images_q.get()
+			cv.imshow('img2',frame)
+			k = cv.waitKey(60) & 0xff
+			if k == 27:
+				close = True
+				break
+			
 
 def histogramic(track_window, frame):
 
@@ -25,49 +80,13 @@ def worker(images_q):
 	
 	cap = cv.VideoCapture(0)
 	while cap.isOpened():
-		images_q.put(cap.read()[1])
+		if images_q.full():
+			images_q.get()
+			images_q.put(cap.read()[1])
+		else:
+			images_q.put(cap.read()[1])
+
 	cap.release()
 	
-def main():
-
-	detector = dlib.get_frontal_face_detector()
-	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
-	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
-	
-	manager = Manager()
-	images_q = manager.Queue(25)
-
-	Process(target=worker, args=(images_q,), daemon=True).start()
-
-	
-	while True:
-		while True:
-			if not images_q.empty():
-				img = images_q.get()
-				break
-
-		dets = detector(img, 1)
-		track_windows = tuple((d.top(), d.height(), d.left(), d.width()) for d in dets)
-		histograms = tuple(map(histogramic, track_windows, (img for i in track_windows)))
-		for step in range(24):
-			frame = images_q.get()
-			hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-
-			i = 0
-			for roi_hist, term_crit in histograms:
-				dst = cv.calcBackProject([hsv],[0],roi_hist,[0,180],1)
-				# apply meanshift to get the new location
-				ret, track_window = cv.CamShift(dst, track_windows[i], term_crit)
-				# Draw it on image
-				pts = cv.boxPoints(ret)
-				pts = np.int0(pts)
-				img2 = cv.polylines(frame,[pts],True, 255,2)
-				cv.imshow('img2',img2)
-				k = cv.waitKey(60) & 0xff
-				if k == 27:
-					break
-				else:
-					cv.imwrite(chr(k)+".jpg",img2)
-				i+=1
 if __name__ == '__main__':
 	main()

@@ -5,13 +5,18 @@ import dlib
 import imutils
 import numpy as np
 
-from time import time
+from time import time, sleep
 from scipy.spatial import distance
 from multiprocessing import Process, Manager
 from PIL import ImageTk, Image, ImageDraw, ImageFont
 from imutils.video import VideoStream, FPS
 
 def main():
+	print('blas',dlib.DLIB_USE_BLAS)
+	print('cuda',dlib.DLIB_USE_CUDA)
+	print('lapack',dlib.DLIB_USE_LAPACK)
+	print('avx',dlib.USE_AVX_INSTRUCTIONS)
+	print('neon',dlib.USE_NEON_INSTRUCTIONS)
 	
 	manager = Manager()
 	images_q = manager.Queue(25)
@@ -51,20 +56,21 @@ def main():
 						cv2.rectangle(frame, (left, top), (right, bottom), (0,0,255), 2)
 			counter+=1
 			cv2.imshow('img', frame)
-			k = cv2.waitKey(10) & 0xff
+			k = cv2.waitKey(3) & 0xff
 			if k == ord('q'):
 				break
 	fps.stop()
 	print(f"fps = {fps.fps():.2f}")
 
 def capturing_process(images_q):
-	cap = cv2.VideoCapture(0)
+	cap = cv2.VideoCapture('rep.mp4')
 	while cap.isOpened():
-		if images_q.full():
-			images_q.get()
-			images_q.put(cap.read()[1])
-		else:
-			images_q.put(cap.read()[1])
+		img = imutils.resize(cap.read()[1], width=700)
+		# if images_q.full():
+		# 	images_q.get()
+		# 	images_q.put(img)
+		# else:
+		images_q.put(img)
 
 	cap.release()
 
@@ -72,16 +78,25 @@ def detecting_process(images_q, dets_q):
 	detector = dlib.get_frontal_face_detector()
 	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
 	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+	while True:
+		while not images_q.empty():
+			rgb = cv2.cvtColor(images_q.get(), cv2.COLOR_BGR2RGB)
+			lt = time()
+			dets = detector.run(rgb,2,1)
+			
+			for d, conf, orient in zip(*dets):
 
-	while not images_q.empty():
-		rgb = cv2.cvtColor(images_q.get(), cv2.COLOR_BGR2RGB)
-
-		dets = detector(rgb, 1)
-		if dets_q.full():
-			dets_q.get()
-			dets_q.put((dets, rgb))
-		else:
-			dets_q.put((dets, rgb))	
+				if conf < 1:
+					print(conf)
+					dets[0].remove(d)
+					dets[1].remove(conf)
+					dets[2].remove(orient)
+			print(time()-lt)
+			if dets_q.full():
+				dets_q.get()
+				dets_q.put((dets[0], rgb))
+			else:
+				dets_q.put((dets[0], rgb))	
 
 if __name__ == '__main__':
 	main()

@@ -35,7 +35,7 @@ def main():
 	trackers = []
 
 	while True:
-		if images_q.qsize() > 10:
+		if not images_q.empty():
 			frame = images_q.get()
 			rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -52,7 +52,7 @@ def main():
 			elif len(trackers) > 0:
 				for tracker in trackers:
 					confidence = tracker.update(rgb)
-					if confidence > 8:
+					if confidence > 7:
 						drect = tracker.get_position()
 						left, top, right, bottom = tuple(map(int, (drect.left(), drect.top(), drect.right(), drect.bottom())))
 						cv2.rectangle(frame, (left, top), (right, bottom), (0,0,255), 2)
@@ -71,6 +71,7 @@ def counting_process(q_for_countproc, count):
 	matrix_of_descriptors = 0
 
 	while True:
+		#print('counting')
 		if not q_for_countproc.empty():
 			dets, rgb = q_for_countproc.get()
 			for d in dets:
@@ -85,13 +86,17 @@ def counting_process(q_for_countproc, count):
 					index = np.argmin(vector_of_differences)
 					if vector_of_differences[index] >= 0.6:
 						matrix_of_descriptors = np.append(matrix_of_descriptors, face_descriptor, axis=0)
-			if type(matrix_of_descriptors) is not int:
-				print(len(matrix_of_descriptors))
-
+						rgb_copy = rgb[d.top()-25:d.bottom()+25, d.left()-15:d.right()+15]
+						rgb_copy = cv2.cvtColor(rgb_copy, cv2.COLOR_RGB2BGR)
+						cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
+			
+	#print('отвалился процесс подсчета')
 def capturing_process(images_q, q_for_detproc):
 	cap = cv2.VideoCapture('rep.mp4')
 	while cap.isOpened():
-		img = imutils.resize(cap.read()[1], width=1000)
+		#print('capturing')
+		img = cap.read()[1]
+		#img = imutils.resize(img, width=1000)
 		# if images_q.full():
 		# 	images_q.get()
 		# 	images_q.put(img)
@@ -99,28 +104,29 @@ def capturing_process(images_q, q_for_detproc):
 		images_q.put(img)
 		if q_for_detproc.empty():
 			q_for_detproc.put(img)
-
 	cap.release()
+	#print('отвалилась камера')
 
 def detecting_process(q_for_detproc, dets_q, q_for_countproc):
 
 	detector = dlib.get_frontal_face_detector()
 	
 	while True:
+		#print('detecting')
 		while not q_for_detproc.empty():
 			rgb = cv2.cvtColor(q_for_detproc.get(), cv2.COLOR_BGR2RGB)
-			lt = time()
-			dets = detector.run(rgb,1)
+			#lt = time()
+			dets = detector.run(rgb,0,1)
 			
 			for d, conf, orient in zip(*dets):
 
-				if conf < 1:
+				if orient != 0:
 
 					dets[0].remove(d)
 					dets[1].remove(conf)
 					dets[2].remove(orient)
 
-			print(time()-lt)
+			#print(time()-lt)
 			if dets_q.full():
 				dets_q.get()
 				dets_q.put((dets[0], rgb))
@@ -132,6 +138,6 @@ def detecting_process(q_for_detproc, dets_q, q_for_countproc):
 				q_for_countproc.put((dets[0], rgb))
 			else:
 				q_for_countproc.put((dets[0], rgb))
-
+	#print('отвалился процесс обнаружения')
 if __name__ == '__main__':
 	main()

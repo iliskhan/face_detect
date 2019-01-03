@@ -12,31 +12,32 @@ from PIL import ImageTk, Image, ImageDraw, ImageFont
 from imutils.video import VideoStream, FPS
 
 def main():
-	print('blas -', dlib.DLIB_USE_BLAS)
-	print('cuda -', dlib.DLIB_USE_CUDA)
+	print('blas -'  , dlib.DLIB_USE_BLAS)
+	print('cuda -'  , dlib.DLIB_USE_CUDA)
 	print('lapack -', dlib.DLIB_USE_LAPACK)
-	print('avx -', dlib.USE_AVX_INSTRUCTIONS)
-	print('neon -', dlib.USE_NEON_INSTRUCTIONS)
+	print('avx -'   , dlib.USE_AVX_INSTRUCTIONS)
+	print('neon -'  , dlib.USE_NEON_INSTRUCTIONS)
 	
 	manager = Manager()
+
+	count = manager.Value('i', 0)
+
 	dets_q = manager.Queue(1)
 	images_q = manager.Queue(25)
 	q_for_detproc = manager.Queue(1)
+	q_for_countproc = manager.Queue(1)
 
-	Process(target=detecting_process, args=(q_for_detproc, dets_q), daemon=True).start()
+	Process(target=counting_process, args=(q_for_countproc, count), daemon=True).start()
 	Process(target=capturing_process, args=(images_q, q_for_detproc), daemon=True).start()
-
-	num_map = np.vectorize(distance.euclidean, signature='(n),(m)->()')
+	Process(target=detecting_process, args=(q_for_detproc, dets_q, q_for_countproc), daemon=True).start()
 
 	counter = 0
 	trackers = []
-	fps = FPS().start()
 
 	while True:
-		if images_q.qsize() > 20:
+		if images_q.qsize() > 10:
 			frame = images_q.get()
 			rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-			fps.update()
 
 			if counter % 25 == 0:
 				counter = 0
@@ -60,8 +61,32 @@ def main():
 			k = cv2.waitKey(3) & 0xff
 			if k == ord('q'):
 				break
-	fps.stop()
-	print(f"fps = {fps.fps():.2f}")
+
+def counting_process(q_for_countproc, count):
+	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
+	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+
+	num_map = np.vectorize(distance.euclidean, signature='(n),(m)->()')
+
+	matrix_of_descriptors = 0
+
+	while True:
+		if not q_for_countproc.empty():
+			dets, rgb = q_for_countproc.get()
+			for d in dets:
+				shape = sp(rgb, d)
+				face_descriptor = facerec.compute_face_descriptor(rgb, shape)
+				face_descriptor = np.array([face_descriptor])
+
+				if type(matrix_of_descriptors) is int:
+					matrix_of_descriptors = face_descriptor
+				else:
+					vector_of_differences = num_map(face_descriptor,matrix_of_descriptors)
+					index = np.argmin(vector_of_differences)
+					if vector_of_differences[index] >= 0.6:
+						matrix_of_descriptors = np.append(matrix_of_descriptors, face_descriptor, axis=0)
+			if type(matrix_of_descriptors) is not int:
+				print(len(matrix_of_descriptors))
 
 def capturing_process(images_q, q_for_detproc):
 	cap = cv2.VideoCapture('rep.mp4')
@@ -77,10 +102,10 @@ def capturing_process(images_q, q_for_detproc):
 
 	cap.release()
 
-def detecting_process(q_for_detproc, dets_q):
+def detecting_process(q_for_detproc, dets_q, q_for_countproc):
+
 	detector = dlib.get_frontal_face_detector()
-	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
-	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+	
 	while True:
 		while not q_for_detproc.empty():
 			rgb = cv2.cvtColor(q_for_detproc.get(), cv2.COLOR_BGR2RGB)
@@ -100,7 +125,13 @@ def detecting_process(q_for_detproc, dets_q):
 				dets_q.get()
 				dets_q.put((dets[0], rgb))
 			else:
-				dets_q.put((dets[0], rgb))	
+				dets_q.put((dets[0], rgb))
+
+			if q_for_countproc.full():
+				q_for_countproc.get()
+				q_for_countproc.put((dets[0], rgb))
+			else:
+				q_for_countproc.put((dets[0], rgb))
 
 if __name__ == '__main__':
 	main()

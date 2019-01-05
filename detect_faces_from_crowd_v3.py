@@ -30,7 +30,7 @@ def main():
 	Process(target=counting_process, args=(q_for_countproc, count), daemon=True).start()
 	Process(target=capturing_process, args=(images_q, q_for_detproc), daemon=True).start()
 	Process(target=detecting_process, args=(q_for_detproc, dets_q, q_for_countproc), daemon=True).start()
-
+	font = cv2.FONT_HERSHEY_SIMPLEX
 	counter = 0
 	trackers = []
 
@@ -56,7 +56,10 @@ def main():
 						drect = tracker.get_position()
 						left, top, right, bottom = tuple(map(int, (drect.left(), drect.top(), drect.right(), drect.bottom())))
 						cv2.rectangle(frame, (left, top), (right, bottom), (0,0,255), 2)
+			#print(count.value)
 			counter+=1
+			width, height = frame.shape[:2]
+			cv2.putText(frame, str(count.value), (height-50, width-50) , font, 4,(255,255,255),2,cv2.LINE_AA)
 			cv2.imshow('img', frame)
 			k = cv2.waitKey(3) & 0xff
 			if k == ord('q'):
@@ -78,25 +81,29 @@ def counting_process(q_for_countproc, count):
 				shape = sp(rgb, d)
 				face_descriptor = facerec.compute_face_descriptor(rgb, shape)
 				face_descriptor = np.array([face_descriptor])
+				rgb_copy = rgb[d.top():d.bottom(), d.left():d.right()]
+				rgb_copy = cv2.cvtColor(rgb_copy, cv2.COLOR_RGB2BGR)
 
 				if type(matrix_of_descriptors) is int:
 					matrix_of_descriptors = face_descriptor
+					cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
+					count.value = len(matrix_of_descriptors)
 				else:
 					vector_of_differences = num_map(face_descriptor,matrix_of_descriptors)
 					index = np.argmin(vector_of_differences)
 					if vector_of_differences[index] >= 0.6:
 						matrix_of_descriptors = np.append(matrix_of_descriptors, face_descriptor, axis=0)
-						rgb_copy = rgb[d.top()-25:d.bottom()+25, d.left()-15:d.right()+15]
-						rgb_copy = cv2.cvtColor(rgb_copy, cv2.COLOR_RGB2BGR)
+						
 						cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
-			
+						count.value = len(matrix_of_descriptors)
+
 	#print('отвалился процесс подсчета')
 def capturing_process(images_q, q_for_detproc):
-	cap = cv2.VideoCapture('rep.mp4')
+	cap = cv2.VideoCapture(0)
 	while cap.isOpened():
 		#print('capturing')
 		img = cap.read()[1]
-		#img = imutils.resize(img, width=1000)
+		img = imutils.resize(img, width=1000)
 		# if images_q.full():
 		# 	images_q.get()
 		# 	images_q.put(img)

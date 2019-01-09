@@ -7,7 +7,7 @@ import numpy as np
 
 from time import time, sleep
 from scipy.spatial import distance
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager, Value
 from PIL import ImageTk, Image, ImageDraw, ImageFont
 from imutils.video import VideoStream, FPS
 
@@ -20,11 +20,17 @@ def main():
 	
 	manager = Manager()
 
-	count = manager.Value('i', 0)
+	#количество лиц
+	count = Value('i', 0)
+
 
 	dets_q = manager.Queue(1)
 	images_q = manager.Queue(25)
+
+	#очередь для процесса детектирования
 	q_for_detproc = manager.Queue(1)
+
+	#очередь для процесса распознования и подсчета
 	q_for_countproc = manager.Queue(1)
 
 	Process(target=counting_process, args=(q_for_countproc, count), daemon=True).start()
@@ -58,8 +64,8 @@ def main():
 						cv2.rectangle(frame, (left, top), (right, bottom), (0,0,255), 2)
 			#print(count.value)
 			counter+=1
-			width, height = frame.shape[:2]
-			cv2.putText(frame, str(count.value), (height-50, width-50) , font, 4,(255,255,255),2,cv2.LINE_AA)
+			height, width = frame.shape[:2]
+			cv2.putText(frame, str(count.value), (width-100, height-100) , font, 4,(255,255,255),2,cv2.LINE_AA)
 			cv2.imshow('img', frame)
 			k = cv2.waitKey(3) & 0xff
 			if k == ord('q'):
@@ -75,6 +81,7 @@ def counting_process(q_for_countproc, count):
 
 	while True:
 		#print('counting')
+		sleep(0.01)
 		if not q_for_countproc.empty():
 			dets, rgb = q_for_countproc.get()
 			for d in dets:
@@ -120,10 +127,11 @@ def detecting_process(q_for_detproc, dets_q, q_for_countproc):
 	
 	while True:
 		#print('detecting')
-		while not q_for_detproc.empty():
+		sleep(0.01)
+		if not q_for_detproc.empty():
 			rgb = cv2.cvtColor(q_for_detproc.get(), cv2.COLOR_BGR2RGB)
 			#lt = time()
-			dets = detector.run(rgb,0,1)
+			dets = detector.run(rgb,1,1)
 			
 			for d, conf, orient in zip(*dets):
 

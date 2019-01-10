@@ -1,6 +1,3 @@
-from tkinter import *
-from tkinter.ttk import *
-
 import os
 import sys
 import cv2
@@ -9,109 +6,157 @@ import imutils
 import numpy as np
 import threading
 
-from queue import Queue
+from time import time, sleep
 from scipy.spatial import distance
-from multiprocessing import Pool, Manager
+from multiprocessing import Process, Manager, Value
 from PIL import ImageTk, Image, ImageDraw, ImageFont
+from imutils.video import VideoStream, FPS
 
-detector = dlib.get_frontal_face_detector()
-sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
-facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
-
-
-def img_generator(cap, w, h):
-	while cap.isOpened():
-
-		yield cv2.cvtColor(cap.read()[1], cv2.COLOR_BGR2RGB), w, h
-
-def video_maker(frames_with_data):
-
-
-	frame, w, h = frames_with_data
-
-	dets = detector(frame, 1)
-	
-	descriptors = []
-
-	for d in dets:
-		shape = sp(frame, d)
-		face_descriptor = facerec.compute_face_descriptor(frame, shape)
-		
-		descriptors.append(face_descriptor)
-			
-		cv2.rectangle(frame, (d.left(), d.top()), (d.right(), d.bottom()), (0,0,255), 2)
-
-	return frame, descriptors
-
-def propageter(q, cap):
-	c.get(cap.read()[1])
 
 def main():
+	print('blas -'  , dlib.DLIB_USE_BLAS)
+	print('cuda -'  , dlib.DLIB_USE_CUDA)
+	print('lapack -', dlib.DLIB_USE_LAPACK)
+	print('avx -'   , dlib.USE_AVX_INSTRUCTIONS)
+	print('neon -'  , dlib.USE_NEON_INSTRUCTIONS)
+	
+	manager = Manager()
 
-	q = Queue(25)
+	#количество лиц
+	count = Value('i', 0)
+
+	dets_q = manager.Queue(1)
+	images_q = manager.Queue(25)
+
+	#очередь для процесса детектирования
+	q_for_detproc = manager.Queue(1)
+
+	#очередь для процесса распознования и подсчета
+	q_for_countproc = manager.Queue(1)
+
+	Process(target=counting_process, args=(q_for_countproc, count), daemon=True).start()
+	Process(target=capturing_process, args=(images_q, q_for_detproc), daemon=True).start()
+	Process(target=detecting_process, args=(q_for_detproc, dets_q, q_for_countproc), daemon=True).start()
+	font = cv2.FONT_HERSHEY_SIMPLEX
+	counter = 0
+	trackers = []
+
+	while True:
+		if not images_q.empty():
+			frame = images_q.get()
+			rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+			if counter % 25 == 0:
+				counter = 0
+				if not dets_q.empty():
+					trackers = []
+					dets, rgb = dets_q.get()
+					for d in dets:
+						tracker = dlib.correlation_tracker()
+						tracker.start_track(rgb, d)
+						trackers.append(tracker)
+
+			elif len(trackers) > 0:
+				for tracker in trackers:
+					confidence = tracker.update(rgb)
+					if confidence > 7:
+						drect = tracker.get_position()
+						left, top, right, bottom = tuple(map(int, (drect.left(), drect.top(), drect.right(), drect.bottom())))
+						cv2.rectangle(frame, (left, top), (right, bottom), (0,0,255), 2)
+			#print(count.value)
+			counter+=1
+			height, width = frame.shape[:2]
+			cv2.putText(frame, str(count.value), (width-100, height-100) , font, 4,(255,255,255),2,cv2.LINE_AA)
+			cv2.imshow('img', frame)
+			k = cv2.waitKey(3) & 0xff
+			if k == ord('q'):
+				break
+
+def counting_process(q_for_countproc, count):
+	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
+	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+
 	num_map = np.vectorize(distance.euclidean, signature='(n),(m)->()')
 
-	cap = cv2.VideoCapture(0)    #'data/' + dirs[0]
-	# cap.set(3,1080)
-	# cap.set(4,720)
-	#out = cv2.VideoWriter('res/output6.mp4', CODEC, 25.0, (w,h))
-	img = imutils.resize(cap.read()[1], height=720)
-	h, w = img.shape[:2]
-	w = int(w * 0.7)
-	h = int(h * 0.9)
+	matrix_of_descriptors = 0
 
-	fnt = ImageFont.truetype("arial.ttf", 35)
-	font = cv2.FONT_HERSHEY_SIMPLEX
-	matrix_descriptors = np.array([])
-	window = Tk()
-	window.title('Счетчик')
+	while True:
+		#print('counting')
+		sleep(0.01)
+		if not q_for_countproc.empty():
+			dets, rgb = q_for_countproc.get()
+			for d in dets:
+				shape = sp(rgb, d)
+				face_descriptor = facerec.compute_face_descriptor(rgb, shape)
+				face_descriptor = np.array([face_descriptor])
+				rgb_copy = rgb[d.top():d.bottom(), d.left():d.right()]
+				rgb_copy = cv2.cvtColor(rgb_copy, cv2.COLOR_RGB2BGR)
 
-	with Pool() as p:
-		for i in p.imap(video_maker, img_generator(cap,w,h), chunksize=1):
-			for child in window.winfo_children():
-				child.destroy()
+				if type(matrix_of_descriptors) is int:
+					matrix_of_descriptors = face_descriptor
+					cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
+					count.value = len(matrix_of_descriptors)
+				else:
+					vector_of_differences = num_map(face_descriptor,matrix_of_descriptors)
 
-			frame = i[0]
-
-			for y in i[1]:
-				face_descriptor = np.array([y])
-				
-				if len(matrix_descriptors) > 0:
-					
-					vector_of_differences = num_map(face_descriptor,matrix_descriptors)
 					index = np.argmin(vector_of_differences)
-
 					if vector_of_differences[index] >= 0.6:
-						matrix_descriptors = np.append(matrix_descriptors, face_descriptor, axis=0)
 
-				elif len(matrix_descriptors) == 0:
+						matrix_of_descriptors = np.append(matrix_of_descriptors, face_descriptor, axis=0)
+						
+						cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
+						count.value = len(matrix_of_descriptors)
 
-					matrix_descriptors = face_descriptor
-
-			frame = Image.fromarray(imutils.resize(frame, height=720))
-			draw = ImageDraw.Draw(frame)
-
-			draw.text((w, h), f'Уникальных: {len(matrix_descriptors)}', font=fnt, fill=(255,0,0))
-
-			photo = ImageTk.PhotoImage(frame)
-
-			label_with_image = Label(window, image=photo)
-			label_with_image.image = photo
-
-			ok_button = Button(window,
-						text="Остановить",
-						command=lambda: cap.release())
-
-			label_with_image.pack()
-			ok_button.pack(padx=40,pady=10,side=LEFT)
-			window.update()
-			
-		p.close()
-		p.join()
+	#print('отвалился процесс подсчета')
+def capturing_process(images_q, q_for_detproc):
+	cap = cv2.VideoCapture(0)
+	while cap.isOpened():
+		#print('capturing')
+		img = cap.read()[1]
+		img = imutils.resize(img, width=1000)
+		# if images_q.full():
+		# 	images_q.get()
+		# 	images_q.put(img)
+		# else:
+		images_q.put(img)
+		if q_for_detproc.empty():
+			q_for_detproc.put(img)
 
 	cap.release()
-	#out.release()
-	window.mainloop()
+	#print('отвалилась камера')
 
+def detecting_process(q_for_detproc, dets_q, q_for_countproc):
+
+	detector = dlib.get_frontal_face_detector()
+	
+	while True:
+		#print('detecting')
+		sleep(0.01)
+		if not q_for_detproc.empty():
+			rgb = cv2.cvtColor(q_for_detproc.get(), cv2.COLOR_BGR2RGB)
+			#lt = time()
+			dets = detector.run(rgb,1,1)
+			
+			for d, conf, orient in zip(*dets):
+
+				if orient != 0:
+
+					dets[0].remove(d)
+					dets[1].remove(conf)
+					dets[2].remove(orient)
+
+			#print(time()-lt)
+			if dets_q.full():
+				dets_q.get()
+				dets_q.put((dets[0], rgb))
+			else:
+				dets_q.put((dets[0], rgb))
+
+			if q_for_countproc.full():
+				q_for_countproc.get()
+				q_for_countproc.put((dets[0], rgb))
+			else:
+				q_for_countproc.put((dets[0], rgb))
+	#print('отвалился процесс обнаружения')
 if __name__ == '__main__':
 	main()

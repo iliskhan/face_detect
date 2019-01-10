@@ -7,7 +7,9 @@ import cv2
 import dlib
 import imutils
 import numpy as np
+import threading
 
+from queue import Queue
 from scipy.spatial import distance
 from multiprocessing import Pool, Manager
 from PIL import ImageTk, Image, ImageDraw, ImageFont
@@ -15,6 +17,7 @@ from PIL import ImageTk, Image, ImageDraw, ImageFont
 detector = dlib.get_frontal_face_detector()
 sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
 facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
+
 
 def img_generator(cap, w, h):
 	while cap.isOpened():
@@ -40,13 +43,13 @@ def video_maker(frames_with_data):
 
 	return frame, descriptors
 
+def propageter(q, cap):
+	c.get(cap.read()[1])
+
 def main():
 
+	q = Queue(25)
 	num_map = np.vectorize(distance.euclidean, signature='(n),(m)->()')
-
-	#matrix_descriptors = None
-
-	dirs = os.listdir('data')
 
 	cap = cv2.VideoCapture(0)    #'data/' + dirs[0]
 	# cap.set(3,1080)
@@ -64,7 +67,7 @@ def main():
 	window.title('Счетчик')
 
 	with Pool() as p:
-		for d, i in enumerate(p.imap(video_maker, img_generator(cap,w,h), chunksize=1)):
+		for i in p.imap(video_maker, img_generator(cap,w,h), chunksize=1):
 			for child in window.winfo_children():
 				child.destroy()
 
@@ -102,8 +105,7 @@ def main():
 			label_with_image.pack()
 			ok_button.pack(padx=40,pady=10,side=LEFT)
 			window.update()
-
-			print(f'кадр {d} записан')
+			
 		p.close()
 		p.join()
 

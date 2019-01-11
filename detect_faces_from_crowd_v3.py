@@ -24,6 +24,8 @@ def main():
 
 	#количество лиц
 	count = Value('i', 0)
+	time_det = Value('d', 0.0)
+	time_count = Value('d', 0.0)
 
 	dets_q = manager.Queue(1)
 	images_q = manager.Queue(25)
@@ -34,9 +36,9 @@ def main():
 	#очередь для процесса распознования и подсчета
 	q_for_countproc = manager.Queue(1)
 
-	Process(target=counting_process, args=(q_for_countproc, count), daemon=True).start()
+	Process(target=counting_process, args=(q_for_countproc, count , time_count), daemon=True).start()
 	Process(target=capturing_process, args=(images_q, q_for_detproc), daemon=True).start()
-	Process(target=detecting_process, args=(q_for_detproc, dets_q, q_for_countproc), daemon=True).start()
+	Process(target=detecting_process, args=(q_for_detproc, dets_q, q_for_countproc, time_det), daemon=True).start()
 	font = cv2.FONT_HERSHEY_SIMPLEX
 	counter = 0
 	trackers = []
@@ -46,10 +48,11 @@ def main():
 			frame = images_q.get()
 			rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-			if counter % 25 == 0:
+			if counter % 50 == 0:
 				counter = 0
+				trackers = []
 				if not dets_q.empty():
-					trackers = []
+					
 					dets, rgb = dets_q.get()
 					for d in dets:
 						tracker = dlib.correlation_tracker()
@@ -72,7 +75,10 @@ def main():
 			if k == ord('q'):
 				break
 
-def counting_process(q_for_countproc, count):
+			print('detecting time = ', time_det.value)
+			print('counting time = ', time_count.value)
+
+def counting_process(q_for_countproc, count, time_count):
 	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
 	facerec = dlib.face_recognition_model_v1('models/dlib_face_recognition_resnet_model_v1.dat')
 
@@ -82,12 +88,15 @@ def counting_process(q_for_countproc, count):
 
 	while True:
 		#print('counting')
-		sleep(0.01)
+		#sleep(0.01)
+		
 		if not q_for_countproc.empty():
 			dets, rgb = q_for_countproc.get()
 			for d in dets:
+				lt = time()
 				shape = sp(rgb, d)
 				face_descriptor = facerec.compute_face_descriptor(rgb, shape)
+				time_count.value = time() - lt
 				face_descriptor = np.array([face_descriptor])
 				rgb_copy = rgb[d.top():d.bottom(), d.left():d.right()]
 				rgb_copy = cv2.cvtColor(rgb_copy, cv2.COLOR_RGB2BGR)
@@ -114,28 +123,29 @@ def capturing_process(images_q, q_for_detproc):
 		#print('capturing')
 		img = cap.read()[1]
 		img = imutils.resize(img, width=1000)
-		# if images_q.full():
-		# 	images_q.get()
-		# 	images_q.put(img)
-		# else:
-		images_q.put(img)
+		if images_q.full():
+			images_q.get()
+			images_q.put(img)
+		else:
+			images_q.put(img)
 		if q_for_detproc.empty():
 			q_for_detproc.put(img)
 
 	cap.release()
 	#print('отвалилась камера')
 
-def detecting_process(q_for_detproc, dets_q, q_for_countproc):
+def detecting_process(q_for_detproc, dets_q, q_for_countproc, time_det):
 
 	detector = dlib.get_frontal_face_detector()
 	
 	while True:
 		#print('detecting')
-		sleep(0.01)
+		#sleep(0.01)
+		lt = time()
 		if not q_for_detproc.empty():
 			rgb = cv2.cvtColor(q_for_detproc.get(), cv2.COLOR_BGR2RGB)
 			#lt = time()
-			dets = detector.run(rgb,1,1)
+			dets = detector.run(rgb,2,1)
 			
 			for d, conf, orient in zip(*dets):
 
@@ -157,6 +167,7 @@ def detecting_process(q_for_detproc, dets_q, q_for_countproc):
 				q_for_countproc.put((dets[0], rgb))
 			else:
 				q_for_countproc.put((dets[0], rgb))
+			time_det.value = time() - lt
 	#print('отвалился процесс обнаружения')
 if __name__ == '__main__':
 	main()

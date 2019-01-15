@@ -8,9 +8,9 @@ import threading
 
 from time import time, sleep
 from scipy.spatial import distance
+from imutils.video import VideoStream, FPS
 from multiprocessing import Process, Manager, Value
 from PIL import ImageTk, Image, ImageDraw, ImageFont
-from imutils.video import VideoStream, FPS
 
 
 def main():
@@ -24,6 +24,7 @@ def main():
 
 	#количество лиц
 	count = Value('i', 0)
+
 	time_det = Value('d', 0.0)
 	time_count = Value('d', 0.0)
 
@@ -66,7 +67,7 @@ def main():
 						drect = tracker.get_position()
 						left, top, right, bottom = tuple(map(int, (drect.left(), drect.top(), drect.right(), drect.bottom())))
 						cv2.rectangle(frame, (left, top), (right, bottom), (0,0,255), 2)
-			#print(count.value)
+
 			counter+=1
 			height, width = frame.shape[:2]
 			cv2.putText(frame, str(count.value), (width-100, height-100) , font, 4,(255,255,255),2,cv2.LINE_AA)
@@ -87,8 +88,6 @@ def counting_process(q_for_countproc, count, time_count):
 	matrix_of_descriptors = 0
 
 	while True:
-		#print('counting')
-		#sleep(0.01)
 		
 		if not q_for_countproc.empty():
 			dets, rgb = q_for_countproc.get()
@@ -116,7 +115,6 @@ def counting_process(q_for_countproc, count, time_count):
 						cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
 						count.value = len(matrix_of_descriptors)
 
-	#print('отвалился процесс подсчета')
 def capturing_process(images_q, q_for_detproc):
 	cap = cv2.VideoCapture(0)
 	while cap.isOpened():
@@ -132,20 +130,18 @@ def capturing_process(images_q, q_for_detproc):
 			q_for_detproc.put(img)
 
 	cap.release()
-	#print('отвалилась камера')
 
 def detecting_process(q_for_detproc, dets_q, q_for_countproc, time_det):
 
 	detector = dlib.get_frontal_face_detector()
 	
 	while True:
-		#print('detecting')
-		#sleep(0.01)
+
 		lt = time()
 		if not q_for_detproc.empty():
 			rgb = cv2.cvtColor(q_for_detproc.get(), cv2.COLOR_BGR2RGB)
 			#lt = time()
-			dets = detector.run(rgb,2,1)
+			dets = detector.run(rgb,1,1)
 			
 			for d, conf, orient in zip(*dets):
 
@@ -168,6 +164,6 @@ def detecting_process(q_for_detproc, dets_q, q_for_countproc, time_det):
 			else:
 				q_for_countproc.put((dets[0], rgb))
 			time_det.value = time() - lt
-	#print('отвалился процесс обнаружения')
+
 if __name__ == '__main__':
 	main()

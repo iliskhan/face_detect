@@ -38,18 +38,40 @@ def main():
 	q_for_countproc = manager.Queue(1)
 
 	Process(target=counting_process, args=(q_for_countproc, count , time_count), daemon=True).start()
-	Process(target=capturing_process, args=(images_q, q_for_detproc), daemon=True).start()
+	#Process(target=capturing_process, args=(images_q, q_for_detproc), daemon=True).start()
 	Process(target=detecting_process, args=(q_for_detproc, dets_q, q_for_countproc, time_det), daemon=True).start()
 	font = cv2.FONT_HERSHEY_SIMPLEX
 	counter = 0
 	trackers = []
-
+	cap = cv2.VideoCapture(1)
+	cap.set(3,900)
+	# cap.set(4,900)
+	
 	while True:
-		if not images_q.empty():
+		
+		if cap.isOpened():
+
+			img = cap.read()[1]
+			#img = imutils.resize(img, width=1000)
+
+			if images_q.full():
+				images_q.get()
+				images_q.put(img)
+
+			else:
+				images_q.put(img)
+
+			if q_for_detproc.empty():
+				q_for_detproc.put(img)
+
+		else:
+			break
+
+		if images_q.qsize() == 24:
 			frame = images_q.get()
 			rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-			if counter % 50 == 0:
+			if counter % 25 == 0:
 				counter = 0
 				trackers = []
 				if not dets_q.empty():
@@ -72,12 +94,13 @@ def main():
 			height, width = frame.shape[:2]
 			cv2.putText(frame, str(count.value), (width-100, height-100) , font, 4,(255,255,255),2,cv2.LINE_AA)
 			cv2.imshow('img', frame)
-			k = cv2.waitKey(3) & 0xff
-			if k == ord('q'):
+			k = cv2.waitKey(25) & 0xff
+			if k == 27:
 				break
 
 			print('detecting time = ', time_det.value)
 			print('counting time = ', time_count.value)
+	cap.release()
 
 def counting_process(q_for_countproc, count, time_count):
 	sp = dlib.shape_predictor('models/shape_predictor_68_face_landmarks.dat')
@@ -115,21 +138,21 @@ def counting_process(q_for_countproc, count, time_count):
 						cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
 						count.value = len(matrix_of_descriptors)
 
-def capturing_process(images_q, q_for_detproc):
-	cap = cv2.VideoCapture(0)
-	while cap.isOpened():
-		#print('capturing')
-		img = cap.read()[1]
-		img = imutils.resize(img, width=1000)
-		if images_q.full():
-			images_q.get()
-			images_q.put(img)
-		else:
-			images_q.put(img)
-		if q_for_detproc.empty():
-			q_for_detproc.put(img)
+# def capturing_process(images_q, q_for_detproc):
+# 	cap = cv2.VideoCapture(0)
+# 	while cap.isOpened():
+# 		#print('capturing')
+# 		img = cap.read()[1]
+# 		img = imutils.resize(img, width=1000)
+# 		if images_q.full():
+# 			images_q.get()
+# 			images_q.put(img)
+# 		else:
+# 			images_q.put(img)
+# 		if q_for_detproc.empty():
+# 			q_for_detproc.put(img)
 
-	cap.release()
+# 	cap.release()
 
 def detecting_process(q_for_detproc, dets_q, q_for_countproc, time_det):
 

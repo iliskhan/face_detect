@@ -43,8 +43,8 @@ def main():
 	font = cv2.FONT_HERSHEY_SIMPLEX
 	counter = 0
 	trackers = []
-	cap = cv2.VideoCapture(1)
-	cap.set(3,900)
+	cap = cv2.VideoCapture(0)
+	# cap.set(3,900)
 	# cap.set(4,900)
 	
 	while True:
@@ -137,22 +137,6 @@ def counting_process(q_for_countproc, count, time_count):
 						
 						cv2.imwrite(f'{len(matrix_of_descriptors)}.jpg', rgb_copy)
 						count.value = len(matrix_of_descriptors)
-
-# def capturing_process(images_q, q_for_detproc):
-# 	cap = cv2.VideoCapture(0)
-# 	while cap.isOpened():
-# 		#print('capturing')
-# 		img = cap.read()[1]
-# 		img = imutils.resize(img, width=1000)
-# 		if images_q.full():
-# 			images_q.get()
-# 			images_q.put(img)
-# 		else:
-# 			images_q.put(img)
-# 		if q_for_detproc.empty():
-# 			q_for_detproc.put(img)
-
-# 	cap.release()
 
 def detecting_process(q_for_detproc, dets_q, q_for_countproc, time_det):
 
